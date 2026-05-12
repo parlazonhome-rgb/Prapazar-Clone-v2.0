@@ -1,0 +1,165 @@
+import { useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import {
+  Card, Descriptions, Tag, Button, Table, Timeline, Divider
+} from 'antd'
+import {
+  ArrowLeftOutlined, PrinterOutlined, TruckOutlined
+} from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
+import { orderApi } from '../services/api'
+import dayjs from 'dayjs'
+
+export default function OrderDetail() {
+  const { id } = useParams<{ id: string }>()
+  const orderId = parseInt(id || '0')
+  const navigate = useNavigate()
+
+  const { data: order, isLoading } = useQuery({
+    queryKey: ['order', orderId],
+    queryFn: () => orderApi.get(orderId).then((r) => r.data),
+  })
+
+  if (isLoading) {
+    return <div className="text-center py-10">Yükleniyor...</div>
+  }
+
+  if (!order) {
+    return <div className="text-center py-10">Sipariş bulunamadı</div>
+  }
+
+  const statusColors: Record<string, string> = {
+    new: 'blue',
+    confirmed: 'cyan',
+    preparing: 'orange',
+    shipped: 'purple',
+    delivered: 'green',
+    cancelled: 'red',
+  }
+
+  const statusLabels: Record<string, string> = {
+    new: 'Yeni',
+    confirmed: 'Onaylandı',
+    preparing: 'Hazırlanıyor',
+    shipped: 'Kargoda',
+    delivered: 'Teslim Edildi',
+    cancelled: 'İptal',
+  }
+
+  const itemColumns = [
+    { title: 'Ürün', dataIndex: 'product_name', key: 'product' },
+    { title: 'SKU', dataIndex: 'product_sku', key: 'sku' },
+    { title: 'Varyant', dataIndex: 'variant_info', key: 'variant' },
+    { title: 'Birim Fiyat', dataIndex: 'unit_price', key: 'price', render: (v: number) => `₺${v?.toFixed(2)}` },
+    { title: 'Adet', dataIndex: 'quantity', key: 'qty' },
+    { title: 'Toplam', dataIndex: 'total_price', key: 'total', render: (v: number) => `₺${v?.toFixed(2)}` },
+  ]
+
+  const timelineItems = [
+    { label: 'Sipariş Tarihi', children: dayjs(order.created_at).format('DD.MM.YYYY HH:mm') },
+    ...(order.shipped_at ? [{ label: 'Kargoya Verildi', children: dayjs(order.shipped_at).format('DD.MM.YYYY HH:mm') }] : []),
+    ...(order.delivered_at ? [{ label: 'Teslim Edildi', children: dayjs(order.delivered_at).format('DD.MM.YYYY HH:mm') }] : []),
+  ]
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/orders')}>
+            Geri
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold">Sipariş #{order.order_number}</h1>
+            <p className="text-gray-500">{order.platform_order_number}</p>
+          </div>
+        </div>
+        <Space>
+          <Button icon={<PrinterOutlined />}>Yazdır</Button>
+          {order.status === 'preparing' && (
+            <Button type="primary" icon={<TruckOutlined />}>Kargoya Ver</Button>
+          )}
+        </Space>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <Card title="Sipariş Kalemleri">
+            <Table
+              dataSource={order.items || []}
+              columns={itemColumns}
+              rowKey="id"
+              pagination={false}
+              summary={(pageData) => {
+                const total = pageData.reduce((sum, item) => sum + (item.total_price || 0), 0)
+                return (
+                  <Table.Summary.Row>
+                    <Table.Summary.Cell index={0} colSpan={5}>
+                      <strong>Toplam</strong>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={1}>
+                      <strong>₺{total.toFixed(2)}</strong>
+                    </Table.Summary.Cell>
+                  </Table.Summary.Row>
+                )
+              }}
+            />
+          </Card>
+
+          <Card title="Fatura Özeti">
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span>Ara Toplam</span>
+                <span>₺{order.subtotal?.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Kargo</span>
+                <span>₺{order.shipping_cost?.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>İndirim</span>
+                <span className="text-red-500">-₺{order.discount?.toFixed(2)}</span>
+              </div>
+              <Divider />
+              <div className="flex justify-between text-lg font-bold">
+                <span>Genel Toplam</span>
+                <span>₺{order.total?.toFixed(2)}</span>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        <div className="space-y-6">
+          <Card title="Sipariş Durumu">
+            <Tag color={statusColors[order.status] || 'default'} className="text-lg px-4 py-1">
+              {statusLabels[order.status] || order.status}
+            </Tag>
+            <Timeline items={timelineItems} className="mt-4" />
+          </Card>
+
+          <Card title="Müşteri Bilgileri">
+            <Descriptions column={1} size="small">
+              <Descriptions.Item label="Ad">{order.customer_name || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Email">{order.customer_email || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Telefon">{order.customer_phone || '-'}</Descriptions.Item>
+            </Descriptions>
+          </Card>
+
+          <Card title="Teslimat Adresi">
+            <p>{order.shipping_address?.address || '-'}</p>
+            <p>{order.shipping_address?.city} / {order.shipping_address?.district}</p>
+            <p>{order.shipping_address?.zip}</p>
+          </Card>
+
+          {order.cargo_company && (
+            <Card title="Kargo Bilgisi">
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="Kargo Firması">{order.cargo_company}</Descriptions.Item>
+                <Descriptions.Item label="Takip No">{order.tracking_number}</Descriptions.Item>
+              </Descriptions>
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

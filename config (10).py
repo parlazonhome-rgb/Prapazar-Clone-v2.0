@@ -1,0 +1,38 @@
+# Core
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-dotenv==1.0.1
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.0
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+
+# Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.17
+
+# HTTP Client
+httpx==0.27.2
+aiohttp==3.11.7
+
+# Task Queue
+celery==5.4.0
+redis==5.2.0
+
+# Validation
+pydantic==2.9.2
+pydantic-settings==2.6.1
+email-validator==2.2.0
+
+# Utils
+python-dateutil==2.9.0
+Pillow==11.0.0
+openpyxl==3.1.5
+pandas==2.2.3
+
+# Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0

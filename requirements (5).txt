@@ -1,0 +1,166 @@
+# ============================================
+# TRENDYOL API SERVİSİ
+# ============================================
+
+import httpx
+import base64
+from typing import List, Dict, Any, Optional
+from app.core.config import settings
+
+
+class TrendyolService:
+    """Trendyol Pazaryeri API Entegrasyonu"""
+
+    BASE_URL = settings.TRENDYOL_API_BASE
+
+    def __init__(self, api_key: str, api_secret: str, seller_id: str):
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.seller_id = seller_id
+
+        # Basic Auth için header oluştur
+        credentials = base64.b64encode(
+            f"{api_key}:{api_secret}".encode()
+        ).decode()
+
+        self.headers = {
+            "Authorization": f"Basic {credentials}",
+            "Content-Type": "application/json",
+            "User-Agent": f"{seller_id} - SelfIntegration"
+        }
+
+    async def _request(self, method: str, endpoint: str, **kwargs) -> Dict:
+        """HTTP istek gönder"""
+        url = f"{self.BASE_URL}{endpoint}"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.request(
+                method=method,
+                url=url,
+                headers=self.headers,
+                timeout=30.0,
+                **kwargs
+            )
+
+            if response.status_code >= 400:
+                raise Exception(f"Trendyol API Hatası: {response.status_code} - {response.text}")
+
+            return response.json() if response.text else {}
+
+    # ========== ÜRÜN İŞLEMLERİ ==========
+
+    async def get_products(self, page: int = 0, size: int = 100) -> List[Dict]:
+        """Trendyol'daki ürünleri listele"""
+        endpoint = f"/product/sellers/{self.seller_id}/products"
+        params = {"page": page, "size": size}
+
+        response = await self._request("GET", endpoint, params=params)
+        return response.get("content", [])
+
+    async def create_product(self, product_data: Dict[str, Any]) -> Dict:
+        """Trendyol'a yeni ürün ekle"""
+        endpoint = f"/product/sellers/{self.seller_id}/products"
+
+        # Trendyol ürün formatına dönüştür
+        trendyol_payload = self._convert_to_trendyol_format(product_data)
+
+        return await self._request("POST", endpoint, json=trendyol_payload)
+
+    async def update_product(self, trendyol_id: str, product_data: Dict[str, Any]) -> Dict:
+        """Trendyol'daki ürünü güncelle"""
+        endpoint = f"/product/sellers/{self.seller_id}/products"
+
+        trendyol_payload = self._convert_to_trendyol_format(product_data)
+        trendyol_payload["id"] = trendyol_id
+
+        return await self._request("PUT", endpoint, json=trendyol_payload)
+
+    async def update_stock_and_price(self, items: List[Dict]) -> Dict:
+        """Toplu stok ve fiyat güncelle"""
+        endpoint = f"/inventory/sellers/{self.seller_id}/products/price-and-inventory"
+
+        payload = {"items": items}
+        return await self._request("POST", endpoint, json=payload)
+
+    # ========== SİPARİŞ İŞLEMLERİ ==========
+
+    async def get_orders(self, status: Optional[str] = None, page: int = 0, size: int = 100) -> List[Dict]:
+        """Siparişleri çek"""
+        endpoint = f"/order/sellers/{self.seller_id}/orders"
+        params = {"page": page, "size": size}
+        if status:
+            params["status"] = status
+
+        response = await self._request("GET", endpoint, params=params)
+        return response.get("content", [])
+
+    async def update_package(self, package_id: str, status: str, tracking_number: Optional[str] = None) -> Dict:
+        """Sipariş durumunu güncelle"""
+        endpoint = f"/order/sellers/{self.seller_id}/shipment-packages/{package_id}"
+
+        payload = {"status": status}
+        if tracking_number:
+            payload["trackingNumber"] = tracking_number
+
+        return await self._request("PUT", endpoint, json=payload)
+
+    # ========== KARGO İŞLEMLERİ ==========
+
+    async def get_cargo_providers(self) -> List[Dict]:
+        """Kargo firmalarını listele"""
+        endpoint = f"/shipment/sellers/{self.seller_id}/cargo-providers"
+        return await self._request("GET", endpoint)
+
+    async def create_package(self, order_line_id: str, cargo_provider: str) -> Dict:
+        """Kargo paketi oluştur"""
+        endpoint = f"/order/sellers/{self.seller_id}/shipment-packages"
+
+        payload = {
+            "orderLineId": order_line_id,
+            "cargoProvider": cargo_provider
+        }
+
+        return await self._request("POST", endpoint, json=payload)
+
+    # ========== YARDIMCI METODLAR ==========
+
+    def _convert_to_trendyol_format(self, product: Dict[str, Any]) -> Dict[str, Any]:
+        """Kendi ürün formatını Trendyol formatına çevir"""
+
+        trendyol_product = {
+            "barcode": product.get("barcode", product.get("sku")),
+            "title": product.get("title", ""),
+            "productMainId": product.get("sku", ""),
+            "brandId": 0,  # Marka ID'si - kategori eşleştirmeden alınmalı
+            "categoryId": product.get("trendyol_category_id", 0),
+            "quantity": product.get("base_stock", 0),
+            "stockCode": product.get("sku", ""),
+            "dimensionalWeight": 1,
+            "description": product.get("description", ""),
+            "currencyType": "TRY",
+            "listPrice": float(product.get("base_price", 0)),
+            "salePrice": float(product.get("base_price", 0)),
+            "vatRate": 18,
+            "cargoCompanyId": 17,  # Varsayılan kargo firması
+            "images": product.get("images", []),
+            "attributes": self._convert_attributes(product.get("attributes", {}))
+        }
+
+        return trendyol_product
+
+    def _convert_attributes(self, attrs: Dict[str, Any]) -> List[Dict]:
+        """Özellikleri Trendyol formatına çevir"""
+        trendyol_attrs = []
+        for key, value in attrs.items():
+            trendyol_attrs.append({
+                "attributeId": 0,  # ID kategori eşleştirmeden alınmalı
+                "attributeName": key,
+                "attributeValue": str(value)
+            })
+        return trendyol_attrs
+
+    def calculate_platform_price(self, base_price: float, commission_rate: float = 0) -> float:
+        """Komisyon dahil fiyat hesapla"""
+        if commission_rate > 0:
+            return round(base_price * (1 + commission_rate / 100), 2)
+        return base_price
